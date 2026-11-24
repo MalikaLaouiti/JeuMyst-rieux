@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Créer un compte - Nombre Mystérieux</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="topbar"><span></span><button class="ghost" id="theme">Changer thème</button></div>
+  <form class="card" id="register">
+    <h2>📝 Créer un compte</h2>
+    <label for="pseudo">Pseudo</label>
+    <input type="text" id="pseudo" autocomplete="username" required maxlength="20" autofocus>
+    <label for="pwd">Mot de passe (4 caractères min.)</label>
+    <input type="password" id="pwd" autocomplete="new-password" required minlength="4">
+    <label for="pwd2">Confirmer le mot de passe</label>
+    <input type="password" id="pwd2" autocomplete="new-password" required minlength="4">
+    <p class="error" id="err"></p>
+    <button class="full">Créer mon compte</button>
+    <p class="hint">Déjà inscrit ? <a href="login.html">Se connecter</a></p>
+  </form>
+  <script src="common.js"></script>
+  <script src="register.js"></script>
+</body>
+</html>
