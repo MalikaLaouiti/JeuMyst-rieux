@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nombre Mystérieux</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="topbar">
+    <span id="who"></span>
+    <span class="row">
+      <a href="scores.html"><button type="button" class="ghost">🏆 Scores</button></a>
+      <button class="ghost" id="theme">Changer thème</button>
+      <button class="ghost" id="logout">Déconnexion</button>
+    </span>
+  </div>
+  <form class="card" id="jeu">
+    <h2>Découvrez le nombre mystérieux !</h2>
+    <p class="hint">Chaque joueur a 3 essais pour trouver le même nombre (1 à 100). Le premier qui trouve gagne.</p>
+    <div id="lobby">
+      <label for="nplayers">Créer une partie — nombre de joueurs</label>
+      <input type="number" id="nplayers" min="1" max="8" value="2">
+      <button type="button" class="full" id="create">Créer et obtenir un code</button>
+      <label for="code">… ou rejoindre avec le code d'un ami</label>
+      <input type="text" id="code" maxlength="6" autocomplete="off" style="text-transform:uppercase">
+      <button type="button" class="full ghost" id="join">Rejoindre</button>
+      <p class="error" id="lobbyerr"></p>
+    </div>
+    <div id="play" hidden>
+      <p class="status" id="status"></p>
+      <p class="code" id="gcode"></p>
+      <ul class="players" id="players"></ul>
+      <button type="button" class="ghost full" id="leave" hidden>Quitter la partie</button>
+      <button type="button" class="full" id="again" hidden>Nouvelle partie</button>
+      <label for="prop">Proposition</label>
+      <input type="text" id="prop" inputmode="numeric" autocomplete="off">
+      <button type="submit" class="full" id="check">Vérifier</button>
+      <label for="essai">Essais restants</label>
+      <input type="text" id="essai" readonly>
+      <label for="msg">Message</label>
+      <input type="text" id="msg" readonly>
+      <label for="rep">Réponse</label>
+      <input type="text" id="rep" readonly>
+    </div>
+  </form>
+  <script src="common.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
