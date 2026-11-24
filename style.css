@@ -1,0 +1,44 @@
+:root { --bg:#f4f6fb; --fg:#1f2937; --card:#fff; --accent:#4f46e5; --muted:#6b7280; }
+body.dark-mode { --bg:#0f172a; --fg:#e5e7eb; --card:#1e293b; --accent:#818cf8; --muted:#94a3b8; }
+
+* { box-sizing:border-box; }
+body { margin:0; min-height:100vh; display:flex; flex-direction:column; align-items:center;
+  font-family:system-ui,sans-serif; background:var(--bg); color:var(--fg); transition:.2s; }
+
+.topbar { width:100%; display:flex; justify-content:space-between; align-items:center; padding:12px 20px; }
+.card { background:var(--card); border-radius:16px; padding:28px; margin:auto;
+  width:min(420px,92vw); box-shadow:0 8px 30px rgba(0,0,0,.15); }
+h2 { margin-top:0; text-align:center; }
+.hint { color:var(--muted); text-align:center; font-size:.9rem; }
+
+label { display:block; margin:12px 0 4px; font-size:.85rem; color:var(--muted); }
+input[type=text], input[type=password] { width:100%; padding:10px; border-radius:8px;
+  border:1px solid var(--muted); background:transparent; color:inherit; font-size:1rem; }
+input[readonly] { opacity:.8; }
+
+button { padding:9px 14px; border:0; border-radius:8px; background:var(--accent); color:#fff;
+  cursor:pointer; font-size:.9rem; }
+button.ghost { background:transparent; color:var(--fg); border:1px solid var(--muted); }
+button:hover { filter:brightness(1.1); }
+.row { display:flex; gap:8px; justify-content:center; flex-wrap:wrap; margin-bottom:8px; }
+.full { width:100%; margin-top:16px; }
+
+.msg.win { color:#16a34a; font-weight:bold; }
+.msg.lose { color:#dc2626; font-weight:bold; }
+.error { color:#dc2626; text-align:center; min-height:1.2em; }
+
+.status { text-align:center; font-weight:bold; }
+.players { list-style:none; padding:0; margin:12px 0; }
+.players li { padding:8px 10px; margin-bottom:6px; border-radius:8px; border:1px solid var(--muted); font-size:.85rem; }
+.players li.me { border-color:var(--accent); }
+button:disabled { opacity:.5; cursor:not-allowed; }
+
+.code { text-align:center; font-size:1.6rem; letter-spacing:.3em; font-weight:bold; color:var(--accent); margin:4px 0; }
+[hidden] { display:none !important; }
+
+.scores { width:100%; border-collapse:collapse; font-size:.9rem; }
+.scores th, .scores td { padding:6px 8px; text-align:left; border-bottom:1px solid var(--muted); }
+.scores tr.me { color:var(--accent); font-weight:bold; }
+a { color:var(--accent); }
+
+.players .try { margin-top:4px; padding-left:12px; color:var(--muted); }
