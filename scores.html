@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Scores - Nombre Mystérieux</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="topbar">
+    <a href="exc.html">← Retour au jeu</a>
+    <button class="ghost" id="theme">Changer thème</button>
+  </div>
+  <div class="card">
+    <h2>🏆 Classement</h2>
+    <table class="scores">
+      <thead><tr><th>#</th><th>Joueur</th><th>Parties</th><th>Victoires</th><th>Score</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <p class="hint" id="upd"></p>
+    <p class="error" id="err"></p>
+  </div>
+  <script src="common.js"></script>
+  <script src="scores.js"></script>
+</body>
+</html>
