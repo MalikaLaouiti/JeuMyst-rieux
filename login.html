@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Connexion - Nombre Mystérieux</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="topbar"><span></span><button class="ghost" id="theme">Changer thème</button></div>
+  <form class="card" id="login">
+    <h2> Connexion</h2>
+    <p class="hint">Entrez votre pseudo pour ouvrir une session de jeu.</p>
+    <label for="pseudo">Pseudo</label>
+    <input type="text" id="pseudo" autocomplete="username" required maxlength="20" autofocus>
+    <label for="pwd">Mot de passe</label>
+    <input type="password" id="pwd" autocomplete="current-password" required minlength="4">
+    <p class="error" id="err"></p>
+    <button class="full">Se connecter</button>
+    <p class="hint">Pas de compte ? <a href="register.html">Créer un compte</a></p>
+  </form>
+  <script src="common.js"></script>
+  <script src="login.js"></script>
+</body>
+</html>
