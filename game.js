@@ -14,9 +14,17 @@ setInterval(async () => {
   timer.end = Date.now() + LIMIT * 1000;
   if (++timer.misses < 2) return ($("msg").value = "Temps écoulé (1/2) — encore un et vous quittez la partie");
   timer.key = null;
-  await run("leave");
-  $("lobbyerr").textContent = "Temps écoulé deux fois : vous avez quitté la partie.";
+  quit("Temps écoulé deux fois. ");
 }, 500);
+
+// quitter : retour au lobby (sinon on reverrait une ancienne partie « gagnée ») + message de défaite
+async function quit(why = "") {
+  const playing = last.game?.status === "playing";
+  await run("leave");
+  wantLobby = true;
+  render(last);
+  if (playing) $("lobbyerr").textContent = why + "Vous avez perdu la partie, dommage.";
+}
 
 const toLogin =() => location.replace("login.html");
 const guard = (e) => (e.status === 401 ? toLogin() : ($("lobbyerr").textContent = $("msg").value = e.message));
@@ -35,7 +43,7 @@ function render(s) {
   $("essai").value = left;
   $("rep").value = g.secret ?? "";
   $("check").disabled = g.status !== "playing" || left <= 0;
-  $("leave").hidden = g.status !== "waiting";
+  $("leave").hidden = g.status === "finished";
   $("again").hidden = g.status !== "finished";
   $("gcode").textContent = g.status === "waiting" ? g.code : "";
 
@@ -81,7 +89,7 @@ async function run(action, data) {
 
 $("create").onclick = () => run("create", { players: Number($("nplayers").value) });
 $("join").onclick = () => run("join", { code: $("code").value });
-$("leave").onclick = () => confirm("Quitter la partie ?") && run("leave");
+$("leave").onclick = () => confirm("Quitter la partie ?") && quit();
 $("again").onclick = () => { wantLobby = true; render(last); };
 $("logout").onclick = async () => { await Session.end(); toLogin(); };
 
