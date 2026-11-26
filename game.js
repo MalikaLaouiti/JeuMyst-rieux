@@ -3,8 +3,22 @@ const HINT = { too_low: "Trop petit ⬆", too_high: "Trop grand ⬇", correct: "
 
 let last = { game: null };
 let wantLobby = false; // le joueur a cliqué « Nouvelle partie » après une partie terminée
+const LIMIT = 20; // secondes par essai ; 2 délais dépassés = le joueur quitte la partie
+const timer = { key: null, game: null, end: 0, misses: 0 };
 
-const toLogin = () => location.replace("login.html");
+setInterval(async () => {
+  if (!timer.key) return ($("chrono").textContent = "");
+  const s = Math.ceil((timer.end - Date.now()) / 1000);
+  $("chrono").textContent = `⏱ ${Math.max(s, 0)} s`;
+  if (s > 0) return;
+  timer.end = Date.now() + LIMIT * 1000;
+  if (++timer.misses < 2) return ($("msg").value = "Temps écoulé (1/2) — encore un et vous quittez la partie");
+  timer.key = null;
+  await run("leave");
+  $("lobbyerr").textContent = "Temps écoulé deux fois : vous avez quitté la partie.";
+}, 500);
+
+const toLogin =() => location.replace("login.html");
 const guard = (e) => (e.status === 401 ? toLogin() : ($("lobbyerr").textContent = $("msg").value = e.message));
 
 function render(s) {
@@ -24,6 +38,15 @@ function render(s) {
   $("leave").hidden = g.status !== "waiting";
   $("again").hidden = g.status !== "finished";
   $("gcode").textContent = g.status === "waiting" ? g.code : "";
+
+   // chronomètre : redémarre à chaque nouvel essai (ou nouvelle partie), pas à chaque rafraîchissement
+  const key = g.id + ":" + me.tries;
+  if (g.status === "playing" && left > 0) {
+    if (timer.key !== key) {
+      if (timer.game !== g.id) timer.misses = 0;
+      Object.assign(timer, { key, game: g.id, end: Date.now() + LIMIT * 1000 });
+    }
+  } else timer.key = null;
 
   const best = Math.max(...g.players.map((p) => p.score));
   $("status").textContent =
