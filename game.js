@@ -58,7 +58,7 @@ async function run(action, data) {
 
 $("create").onclick = () => run("create", { players: Number($("nplayers").value) });
 $("join").onclick = () => run("join", { code: $("code").value });
-$("leave").onclick = () => run("leave");
+$("leave").onclick = () => confirm("Quitter la partie ?") && run("leave");
 $("again").onclick = () => { wantLobby = true; render(last); };
 $("logout").onclick = async () => { await Session.end(); toLogin(); };
 
