@@ -5,6 +5,8 @@ session_start();
 header('Content-Type: application/json; charset=utf-8');
 
 const MAX_TRIES = 3;
+const TURN_SECS = 20; // durée d'un tour ; 2 tours manqués = exclusion
+const ORD = '(gp.user_id = g.created_by) DESC, gp.joined_at, gp.user_id'; // ordre de jeu : le créateur d'abord
 
 function out(array $d, int $code = 200): never {
   http_response_code($code);
@@ -28,17 +30,61 @@ function q(PDO $pdo, string $sql, array $p = []): PDOStatement {
   return $s;
 }
 
+// Joueur dont c'est le tour : celui qui a le moins d'essais (puis ordre de jeu), parmi ceux qui en ont encore.
+function turnUser(PDO $pdo, array $g): ?int {
+  $u = q($pdo, 'SELECT gp.user_id FROM game_players gp JOIN games g ON g.id = gp.game_id
+                 WHERE gp.game_id = ? AND gp.tries < ? ORDER BY gp.tries, ' . ORD . ' LIMIT 1',
+         [$g['id'], $g['max_tries']])->fetchColumn();
+  return $u === false ? null : (int)$u;
+}
+
+// Un joueur quitte (volontairement ou exclu). Appelé dans une transaction, partie verrouillée.
+function leaveGame(PDO $pdo, array $g, int $uid): void {
+  q($pdo, 'DELETE FROM game_players WHERE game_id = ? AND user_id = ?', [$g['id'], $uid]);
+  q($pdo, 'DELETE FROM games WHERE id = ? AND NOT EXISTS (SELECT 1 FROM game_players WHERE game_id = ?)', [$g['id'], $g['id']]);
+  if ($g['status'] === 'playing' && (int)$g['max_players'] === 2) { // à 2 joueurs, l'autre gagne
+    q($pdo, 'UPDATE game_players SET score = ? WHERE game_id = ?', [$g['max_tries'] * 10, $g['id']]);
+    q($pdo, "UPDATE games SET status = 'finished', finished_at = NOW() WHERE id = ?", [$g['id']]);
+  }
+  // si les joueurs restants n'ont plus d'essais, la partie se termine
+  q($pdo, "UPDATE games SET status = 'finished', finished_at = NOW()
+           WHERE id = ? AND status = 'playing' AND NOT EXISTS
+             (SELECT 1 FROM game_players WHERE game_id = ? AND tries < ?)", [$g['id'], $g['id'], $g['max_tries']]);
+  q($pdo, 'UPDATE games SET turn_at = NOW() WHERE id = ?', [$g['id']]);
+}
+
+// Tour expiré (n'importe quel client qui interroge le serveur le constate) : le joueur perd son essai ;
+// au 2e tour manqué il est exclu. Transaction ouverte, partie verrouillée ($g à jour).
+function expireTurn(PDO $pdo, array $g): void {
+  if ($g['status'] !== 'playing') return;
+  $age = (int)q($pdo, 'SELECT TIMESTAMPDIFF(SECOND, turn_at, NOW()) FROM games WHERE id = ?', [$g['id']])->fetchColumn();
+  $u = turnUser($pdo, $g);
+  if ($age < TURN_SECS || !$u) return;
+  $h = json_decode(q($pdo, 'SELECT history FROM game_players WHERE game_id = ? AND user_id = ?', [$g['id'], $u])->fetchColumn() ?? '[]', true);
+  $h[] = ['v' => null, 'r' => 'timeout'];
+  if (count(array_filter($h, fn($x) => $x['r'] === 'timeout')) >= 2) { leaveGame($pdo, $g, $u); return; }
+  q($pdo, 'UPDATE game_players SET tries = tries + 1, history = ? WHERE game_id = ? AND user_id = ?', [json_encode($h), $g['id'], $u]);
+  q($pdo, 'UPDATE games SET turn_at = NOW() WHERE id = ?', [$g['id']]);
+  q($pdo, "UPDATE games SET status = 'finished', finished_at = NOW() WHERE id = ? AND NOT EXISTS
+           (SELECT 1 FROM game_players WHERE game_id = ? AND tries < ?)", [$g['id'], $g['id'], $g['max_tries']]);
+}
+
 // Dernière partie du joueur + tous ses joueurs. Le secret n'est révélé qu'à la fin.
 function state(PDO $pdo, int $uid): array {
   $g = q($pdo, 'SELECT g.* FROM games g JOIN game_players gp ON gp.game_id = g.id
                 WHERE gp.user_id = ? ORDER BY g.id DESC LIMIT 1', [$uid])->fetch();
   if (!$g) return ['game' => null];
   $players = q($pdo, 'SELECT u.pseudo, gp.tries, gp.score, gp.history, (gp.user_id = ?) AS me
-                      FROM game_players gp JOIN users u ON u.id = gp.user_id
-                      WHERE gp.game_id = ? ORDER BY gp.joined_at', [$uid, $g['id']])->fetchAll();
+                      FROM game_players gp JOIN users u ON u.id = gp.user_id JOIN games g ON g.id = gp.game_id
+                      WHERE gp.game_id = ? ORDER BY ' . ORD, [$uid, $g['id']])->fetchAll();
   foreach ($players as &$p) $p['history'] = json_decode($p['history'] ?? '[]', true); // [{v, r}, ...]
   unset($p);
+  $turn = $g['status'] === 'playing' ? turnUser($pdo, $g) : null;
+  $age = (int)q($pdo, 'SELECT TIMESTAMPDIFF(SECOND, turn_at, NOW()) FROM games WHERE id = ?', [$g['id']])->fetchColumn();
   return ['game' => [
+    'turn' => $turn ? q($pdo, 'SELECT pseudo FROM users WHERE id = ?', [$turn])->fetchColumn() : null,
+    'my_turn' => $turn === $uid,
+    'secs_left' => max(0, TURN_SECS - $age),
     'id' => $g['id'], 'status' => $g['status'], 'max_tries' => $g['max_tries'],
     'code' => $g['code'], 'max_players' => $g['max_players'],
     'players' => $players,
@@ -93,7 +139,12 @@ try {
               AND gp.game_id IN (SELECT id FROM games WHERE status = 'finished')
          GROUP BY u.id, u.pseudo ORDER BY score DESC, victoires DESC, u.pseudo LIMIT 100")->fetchAll()]);
 
-    case 'state':
+    case 'state': // au passage, constate l'expiration éventuelle du tour en cours
+      $pdo->beginTransaction();
+      $g = q($pdo, "SELECT g.* FROM games g JOIN game_players gp ON gp.game_id = g.id
+                    WHERE gp.user_id = ? AND g.status = 'playing' FOR UPDATE", [$uid])->fetch();
+      if ($g) expireTurn($pdo, $g);
+      $pdo->commit();
       out(state($pdo, $uid));
 
     case 'create': // crée une partie pour N joueurs + code à partager
@@ -122,28 +173,16 @@ try {
         $gid = $g['id'];
       }
       q($pdo, 'INSERT INTO game_players (game_id, user_id) VALUES (?, ?)', [$gid, $uid]);
-      q($pdo, "UPDATE games SET status = 'playing'
+      q($pdo, "UPDATE games SET status = 'playing', turn_at = NOW()
                WHERE id = ? AND (SELECT COUNT(*) FROM game_players WHERE game_id = ?) >= max_players", [$gid, $gid]);
       $pdo->commit();
       out(state($pdo, $uid));
 
     case 'leave': // quitter une partie en attente ou en cours (la supprime si vide)
       $pdo->beginTransaction();
-      $g = q($pdo, "SELECT g.id, g.max_tries, g.max_players, g.status FROM games g JOIN game_players gp ON gp.game_id = g.id
+      $g = q($pdo, "SELECT g.* FROM games g JOIN game_players gp ON gp.game_id = g.id
                     WHERE gp.user_id = ? AND g.status IN ('waiting', 'playing') FOR UPDATE", [$uid])->fetch();
-      if ($g) {
-        q($pdo, 'DELETE FROM game_players WHERE game_id = ? AND user_id = ?', [$g['id'], $uid]);
-        // partie à 2 joueurs en cours : l'autre gagne automatiquement (score maximal)
-        if ($g['status'] === 'playing' && (int)$g['max_players'] === 2) {
-          q($pdo, 'UPDATE game_players SET score = ? WHERE game_id = ?', [$g['max_tries'] * 10, $g['id']]);
-          q($pdo, "UPDATE games SET status = 'finished', finished_at = NOW() WHERE id = ?", [$g['id']]);
-        }
-        q($pdo, 'DELETE FROM games WHERE id = ? AND NOT EXISTS (SELECT 1 FROM game_players WHERE game_id = ?)', [$g['id'], $g['id']]);
-        // si les joueurs restants n'ont plus d'essais, la partie se termine
-        q($pdo, "UPDATE games SET status = 'finished', finished_at = NOW()
-                 WHERE id = ? AND status = 'playing' AND NOT EXISTS
-                   (SELECT 1 FROM game_players WHERE game_id = ? AND tries < ?)", [$g['id'], $g['id'], $g['max_tries']]);
-      }
+      if ($g) leaveGame($pdo, $g, $uid);
       $pdo->commit();
       out(state($pdo, $uid));
 
@@ -154,9 +193,18 @@ try {
       $pdo->beginTransaction();
       $g = q($pdo, "SELECT g.* FROM games g JOIN game_players gp ON gp.game_id = g.id
                     WHERE gp.user_id = ? AND g.status <> 'finished' FOR UPDATE", [$uid])->fetch();
-      if (!$g || $g['status'] !== 'playing') {
+      if ($g) { expireTurn($pdo, $g); $g = q($pdo, 'SELECT * FROM games WHERE id = ?', [$g['id']])->fetch(); }
+      if ($g && !q($pdo, 'SELECT 1 FROM game_players WHERE game_id = ? AND user_id = ?', [$g['id'], $uid])->fetch()) {
+        $pdo->commit(); // exclu à l'instant par expiration de son tour
+        out(['error' => 'Vous avez été exclu de la partie'], 409);
+      }
+      if ($g && $g['status'] === 'playing' && turnUser($pdo, $g) !== (int)$uid) {
         $pdo->rollBack();
-        out(['error' => $g ? "En attente d'un adversaire…" : 'Aucune partie en cours'], 409);
+        out(['error' => "Ce n'est pas votre tour"], 409);
+      }
+      if (!$g || $g['status'] !== 'playing') {
+        $g && $g['status'] === 'finished' ? $pdo->commit() : $pdo->rollBack(); // garde l'expiration éventuelle
+        out(['error' => !$g ? 'Aucune partie en cours' : ($g['status'] === 'finished' ? 'Partie terminée' : "En attente d'un adversaire…")], 409);
       }
       $row = q($pdo, 'SELECT tries, history FROM game_players WHERE game_id = ? AND user_id = ?', [$g['id'], $uid])->fetch();
       $tries = (int)$row['tries'];
@@ -171,6 +219,7 @@ try {
       $history[] = ['v' => $v, 'r' => $result];
       q($pdo, 'UPDATE game_players SET tries = ?, history = ?, score = ? WHERE game_id = ? AND user_id = ?',
         [$tries, json_encode($history), $score, $g['id'], $uid]);
+      q($pdo, 'UPDATE games SET turn_at = NOW() WHERE id = ?', [$g['id']]); // tour suivant
 
       $left = q($pdo, 'SELECT COUNT(*) FROM game_players WHERE game_id = ? AND tries < ?', [$g['id'], $g['max_tries']])->fetchColumn();
       if ($result === 'correct' || !$left)

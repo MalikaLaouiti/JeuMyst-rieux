@@ -19,6 +19,7 @@ CREATE TABLE games (
   created_by    INT NOT NULL,
   created_at    TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   finished_at   TIMESTAMP NULL,
+  turn_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, -- début du tour en cours (chrono côté serveur)
   CHECK (secret_number BETWEEN 1 AND 100),
   CHECK (max_tries > 0),
   FOREIGN KEY (created_by) REFERENCES users(id)

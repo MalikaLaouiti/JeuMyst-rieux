@@ -1,37 +1,19 @@
 const $ = (id) => document.getElementById(id);
-const HINT = { too_low: "Trop petit ⬆", too_high: "Trop grand ⬇", correct: "Bravo ! 🎉" };
+const HINT = { too_low: "Trop petit ⬆", too_high: "Trop grand ⬇", timeout: "⏱ Temps écoulé", correct: "Bravo ! 🎉" };
 
 let last = { game: null };
 let wantLobby = false; // le joueur a cliqué « Nouvelle partie » après une partie terminée
-const LIMIT = 20; // secondes par essai ; 2 délais dépassés = le joueur quitte la partie
-const timer = { key: null, game: null, end: 0, misses: 0 };
-
-setInterval(async () => {
-  if (!timer.key) return ($("chrono").textContent = "");
-  const s = Math.ceil((timer.end - Date.now()) / 1000);
-  $("chrono").textContent = `⏱ ${Math.max(s, 0)} s`;
-  if (s > 0) return;
-  timer.end = Date.now() + LIMIT * 1000;
-  if (++timer.misses < 2) return ($("msg").value = "Temps écoulé (1/2) — encore un et vous quittez la partie");
-  timer.key = null;
-  quit("Temps écoulé deux fois. ");
-}, 500);
-
-// quitter : retour au lobby (sinon on reverrait une ancienne partie « gagnée ») + message de défaite
-async function quit(why = "") {
-  const playing = last.game?.status === "playing";
-  await run("leave");
-  wantLobby = true;
-  render(last);
-  if (playing) $("lobbyerr").textContent = why + "Vous avez perdu la partie, dommage.";
-}
-
 const toLogin =() => location.replace("login.html");
 const guard = (e) => (e.status === 401 ? toLogin() : ($("lobbyerr").textContent = $("msg").value = e.message));
 
 function render(s) {
+  const g = s.game, prev = last.game;
   last = s;
-  const g = s.game;
+  // ma partie a disparu (j'ai quitté ou j'ai été exclu) : retour au lobby, sinon on reverrait une ancienne partie
+  if (prev && prev.status !== "finished" && g?.id !== prev.id) {
+    wantLobby = true;
+    $("lobbyerr").textContent = prev.status === "playing" ? "Vous avez perdu la partie, dommage." : "";
+  }
   const lobby = !g || (g.status === "finished" && wantLobby);
   $("lobby").hidden = !lobby;
   $("play").hidden = lobby;
@@ -42,24 +24,16 @@ function render(s) {
 
   $("essai").value = left;
   $("rep").value = g.secret ?? "";
-  $("check").disabled = g.status !== "playing" || left <= 0;
+  $("check").disabled = g.status !== "playing" || left <= 0 || !g.my_turn; // un seul joueur à la fois
   $("leave").hidden = g.status === "finished";
   $("again").hidden = g.status !== "finished";
+  $("chrono").textContent = g.status === "playing" ? `⏱ ${g.turn} — ${g.secs_left} s` : "";
   $("gcode").textContent = g.status === "waiting" ? g.code : "";
-
-   // chronomètre : redémarre à chaque nouvel essai (ou nouvelle partie), pas à chaque rafraîchissement
-  const key = g.id + ":" + me.tries;
-  if (g.status === "playing" && left > 0) {
-    if (timer.key !== key) {
-      if (timer.game !== g.id) timer.misses = 0;
-      Object.assign(timer, { key, game: g.id, end: Date.now() + LIMIT * 1000 });
-    }
-  } else timer.key = null;
 
   const best = Math.max(...g.players.map((p) => p.score));
   $("status").textContent =
     g.status === "waiting" ? `⏳ Partagez ce code — ${g.players.length}/${g.max_players} joueurs` :
-    g.status === "playing" ? (left > 0 ? "À vous de jouer !" : "Plus d'essais, attendez les autres…") :
+    g.status === "playing" ? (left <= 0 ? "Plus d'essais, attendez les autres…" : g.my_turn ? "À vous de jouer !" : `Au tour de ${g.turn}…`) :
     best === 0 ? "Personne n'a trouvé." :
     g.players.find((p) => p.score === best).me ? "🏆 Vous avez gagné !" : "Perdu, un autre joueur a trouvé.";
 
@@ -71,11 +45,21 @@ function render(s) {
     for (const h of p.history) { // chaque essai : nombre + indice, visible par tous
       const d = document.createElement("div");
       d.className = "try";
-      d.textContent = `${h.v} → ${HINT[h.r]}`;
+      d.textContent = `${h.v ?? "—"} → ${HINT[h.r]}`;
       li.append(d);
     }
     $("players").append(li);
   }
+}
+
+// Appel serveur + affichage, sans bloquer les autres : plusieurs requêtes (essai, sondage) peuvent
+// être en vol en même temps ; une réponse plus ancienne que celle déjà affichée est ignorée.
+let sent = 0, shown = 0;
+async function call(action, data) {
+  const id = ++sent;
+  const s = await api(action, data);
+  if (id > shown) { shown = id; render(s); }
+  return s;
 }
 
 // Lance une action qui renvoie l'état (create/join/leave) ; en cas de succès on affiche la partie.
@@ -83,13 +67,13 @@ async function run(action, data) {
   try {
     $("lobbyerr").textContent = $("msg").value = $("prop").value = "";
     wantLobby = false;
-    render(await api(action, data));
+    await call(action, data);
   } catch (e) { guard(e); }
 }
 
 $("create").onclick = () => run("create", { players: Number($("nplayers").value) });
 $("join").onclick = () => run("join", { code: $("code").value });
-$("leave").onclick = () => confirm("Quitter la partie ?") && quit();
+$("leave").onclick = () => confirm("Quitter la partie ?") && run("leave");
 $("again").onclick = () => { wantLobby = true; render(last); };
 $("logout").onclick = async () => { await Session.end(); toLogin(); };
 
@@ -101,10 +85,9 @@ $("jeu").onsubmit = async (e) => {
     return;
   }
   try {
-    const s = await api("guess", { value });
+    $("prop").select(); // on peut déjà saisir la suite pendant que la requête part
+    const s = await call("guess", { value });
     $("msg").value = HINT[s.result];
-    $("prop").select();
-    render(s);
   } catch (e) { guard(e); }
 };
 
@@ -114,8 +97,8 @@ $("jeu").onsubmit = async (e) => {
     const u = await api("me"); // le cookie de session reste l'autorité (401 -> login)
     Session.start(u.pseudo);
     $("who").textContent = "👤 " + u.pseudo;
-    render(await api("state"));
-    // pas de push serveur : on interroge toutes les 2 s pour voir les autres joueurs
-    setInterval(async () => { try { render(await api("state")); } catch (e) { guard(e); } }, 2000);
+    await call("state");
+    // pas de push serveur : on interroge toutes les secondes pour voir les essais des autres joueurs
+    setInterval(() => call("state").catch(guard), 1000);
   } catch (e) { guard(e); }
 })();
