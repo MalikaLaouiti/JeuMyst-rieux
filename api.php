@@ -129,10 +129,15 @@ try {
 
     case 'leave': // quitter une partie en attente ou en cours (la supprime si vide)
       $pdo->beginTransaction();
-      $g = q($pdo, "SELECT g.id, g.max_tries FROM games g JOIN game_players gp ON gp.game_id = g.id
+      $g = q($pdo, "SELECT g.id, g.max_tries, g.max_players, g.status FROM games g JOIN game_players gp ON gp.game_id = g.id
                     WHERE gp.user_id = ? AND g.status IN ('waiting', 'playing') FOR UPDATE", [$uid])->fetch();
       if ($g) {
         q($pdo, 'DELETE FROM game_players WHERE game_id = ? AND user_id = ?', [$g['id'], $uid]);
+        // partie à 2 joueurs en cours : l'autre gagne automatiquement (score maximal)
+        if ($g['status'] === 'playing' && (int)$g['max_players'] === 2) {
+          q($pdo, 'UPDATE game_players SET score = ? WHERE game_id = ?', [$g['max_tries'] * 10, $g['id']]);
+          q($pdo, "UPDATE games SET status = 'finished', finished_at = NOW() WHERE id = ?", [$g['id']]);
+        }
         q($pdo, 'DELETE FROM games WHERE id = ? AND NOT EXISTS (SELECT 1 FROM game_players WHERE game_id = ?)', [$g['id'], $g['id']]);
         // si les joueurs restants n'ont plus d'essais, la partie se termine
         q($pdo, "UPDATE games SET status = 'finished', finished_at = NOW()
